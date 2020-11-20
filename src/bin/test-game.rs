@@ -22,6 +22,12 @@ fn main() {
 
     let _ = games.get_mut(gid.clone()).unwrap().choose_operatives(player1.clone(), vec![0, 1]);
 
+    games.get_mut(gid.clone()).unwrap().vote_to_approve(player1.clone(), true);
+    games.get_mut(gid.clone()).unwrap().vote_to_approve(player2.clone(), true);
+    games.get_mut(gid.clone()).unwrap().vote_to_approve(player3.clone(), false);
+    games.get_mut(gid.clone()).unwrap().vote_to_approve(player4.clone(), false);
+    games.get_mut(gid.clone()).unwrap().vote_to_approve(player5.clone(), true);
+
     println!("{:#?}", games);
 
 }
