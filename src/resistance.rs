@@ -37,6 +37,7 @@ pub struct Player {
     pub player_type: PlayerType,
     pub key: String,
     pub name: String,
+    pub id: usize,
 }
 
 #[derive(Debug)]
@@ -48,6 +49,7 @@ pub struct Spot {
 
 #[derive(Debug)]
 #[derive(Clone)]
+#[derive(PartialEq, Eq)]
 pub enum PlayerType {
     Agent,
     Spy,
@@ -56,11 +58,12 @@ pub enum PlayerType {
 #[derive(Debug)]
 #[derive(Clone)]
 #[derive(Copy)]
+#[derive(PartialEq, Eq)]
 pub enum MissionState {
-    Joining,
     Pending,
-    Approving,
-    Engaging,
+    SelectingOperatives,
+    ApprovingMission,
+    RunningMission,
     Failure,
     Victory,
 }
@@ -71,6 +74,7 @@ impl Player {
             player_type: PlayerType::default(),
             key: rng.sample_iter(&Alphanumeric).take(18).collect(),
             name: get_name(),
+            id: 0,
         }
     }
 
@@ -92,17 +96,21 @@ impl Default for MissionState {
 }
 
 impl ResistanceGame {
-    pub fn new(numberofplayers: usize, mut rng: &ThreadRng) -> Self {
-        let (players, spots) = ResistanceGame::generate_players(numberofplayers, &mut rng);
-        ResistanceGame {
-            players: players,
-            leader: 0,
-            round: 0,
-            wins: 0,
-            status: vec![RoundStatus::default(); 5],
-            vote: 0,
-            spots: spots,
-            started: false,
+    pub fn new(numberofplayers: usize, mut rng: &ThreadRng) -> Result<Self,&'static str> {
+        if numberofplayers >= 5 && numberofplayers <=10 {
+            let (players, spots) = ResistanceGame::generate_players(numberofplayers, &mut rng);
+            Ok(ResistanceGame {
+                players: players,
+                leader: 0,
+                round: 0,
+                wins: 0,
+                status: vec![RoundStatus::default(); 5],
+                vote: 0,
+                spots: spots,
+                started: false,
+            })
+        } else {
+            Err("Only 5 - 10 players are allowed")
         }
 
     }
@@ -134,21 +142,45 @@ impl ResistanceGame {
         for n in 0..self.spots.len() {
             if !self.spots[n].claimed {
                 self.spots[n].claimed = true;
-                if n == self.spots.len() - 1 {
-                    self.started = true;
-                }
+                self.players.get_mut(&self.spots[n].key).unwrap().id = n;
                 return Ok(self.spots[n].key.clone());
             }
         }
         Err("No spots available")
     }
 
-    pub fn change_name(&mut self, player_key: String, name: String) {
-        self.players.get_mut(&player_key).unwrap().change_name(name);
+    pub fn start(&mut self) -> Result<(), &'static str> {
+        if self.started {
+            Err("Game is already started")
+        } else {
+            for n in 0..self.spots.len() {
+                if !self.spots[n].claimed {
+                    return Err("Not everyone has joined yet");
+                }
+            }
+            self.started = true;
+            self.status[0].state = MissionState::SelectingOperatives;
+            Ok(())
+        }
+    }
+
+    pub fn change_name(&mut self, player_key: String, name: String) -> Result<(), &'static str> {
+        if self.started {
+            Err("You cannot change your name once the game has started.")
+        } else {
+            self.players.get_mut(&player_key).unwrap().change_name(name);
+            Ok(())
+        }
     }
 
     pub fn choose_operatives(&mut self, player_key: String, players: Vec<usize>) -> Result<(), &'static str> {
-        Err("You're not the leader!")
+        if self.status[self.round].state != MissionState::SelectingOperatives {
+            Err("It's not time to select operatives")
+        } else if self.leader != self.players.get(&player_key).unwrap().id {
+          Err("You're not the leader!")
+        } else {
+            Ok(())
+        }
     }
 
     pub fn vote_to_approve(&mut self, player_key: String, vote: bool) -> Result<(), &'static str> {
@@ -172,10 +204,10 @@ impl ResistanceGames {
         }
     }
 
-    pub fn create(&mut self, numberofplayers: usize)  -> String {
+    pub fn create(&mut self, numberofplayers: usize) -> Result<String, &'static str> {
         let id : String = self.rng.sample_iter(&Alphanumeric).take(6).collect();
-        self.games.insert(id.clone(), ResistanceGame::new(numberofplayers, &mut self.rng));
-        id.clone()
+        self.games.insert(id.clone(), ResistanceGame::new(numberofplayers, &mut self.rng)?);
+        Ok(id.clone())
     }
 
     pub fn get(&self, key: String) -> Option<&ResistanceGame> {
@@ -185,4 +217,15 @@ impl ResistanceGames {
     pub fn get_mut(&mut self, key: String) -> Option<&mut ResistanceGame> {
         self.games.get_mut(&key)
     }
+}
+
+fn mission_size( numberofplayers: usize, missionno: usize) -> usize {
+    let sizes = [
+        [2,2,2,3,3,3],
+        [3,3,3,4,4,4],
+        [2,4,3,4,4,4],
+        [3,3,4,5,5,5],
+        [3,4,4,5,5,5],
+    ];
+    return sizes[missionno][numberofplayers - 5];
 }
