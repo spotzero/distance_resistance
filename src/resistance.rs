@@ -8,8 +8,9 @@ use crate::names::get_name;
 #[derive(Clone, Debug, Default)]
 pub struct RoundStatus {
     pub state: MissionState,
-    pub operatives: Vec<usize>,
-    pub approvals: Vec<Approval>,
+    pub operatives: Vec<Vec<usize>>,
+    pub vote: usize,
+    pub approvals: Vec<Vec<Approval>>,
     pub mission: Vec<bool>,
 }
 
@@ -177,11 +178,11 @@ impl ResistanceGame {
         if self.status[self.round].state != MissionState::SelectingOperatives {
             Err("It's not time to select operatives")
         } else if self.leader != self.get_player(&player_key)?.id {
-          Err("You're not the leader!")
+            Err("You're not the leader!")
         } else if mission_size(self.spots.len(), self.round) != selected_players.len() {
             Err("Wrong number of operatives selected")
         } else {
-            self.status[self.round].operatives = selected_players;
+            self.status[self.round].operatives.push(selected_players);
             self.status[self.round].state = MissionState::ApprovingMission;
             Ok(())
         }
@@ -195,12 +196,13 @@ impl ResistanceGame {
             Err("Player has already voted!")
         } else {
             if self.status[self.round].approvals.len() == 0 {
-                self.status[self.round].approvals = vec![Approval::None; self.numberofplayers];
+                self.status[self.round].approvals = vec![vec![Approval::None; self.numberofplayers]];
             }
+            let votecount = self.status[self.round].vote;
             if vote {
-                self.status[self.round].approvals[playerid] = Approval::Approve;
+                self.status[self.round].approvals[votecount][playerid] = Approval::Approve;
             } else {
-                self.status[self.round].approvals[playerid] = Approval::Reject;
+                self.status[self.round].approvals[votecount][playerid] = Approval::Reject;
             }
             if self.has_everyone_voted() {
                 self.approve_or_reject();
@@ -211,7 +213,17 @@ impl ResistanceGame {
     }
 
     pub fn succeed_mission(&mut self, player_key: &String, status: bool) -> Result<(), &'static str> {
-        Err("It's not even time for the mission")
+        let playerid = self.playerid(player_key)?;
+        if self.status[self.round].state != MissionState::RunningMission {
+            Err("It's not even time for the mission")
+        } else if !self.is_on_mission(playerid) {
+            Err("You're not on the current mission")
+        } else if !self.is_valid_mission_choice(playerid, status) {
+            Err("Only spies may fail missions")
+        } else {
+            // TODO;
+            Ok(())
+        }
     }
 
     fn current_status(&self) -> MissionState {
@@ -222,24 +234,38 @@ impl ResistanceGame {
         Ok(self.get_player(player_key)?.id)
     }
 
+    fn next_leader(&mut self) {
+        self.leader = (self.leader + 1) % self.numberofplayers
+    }
+
     fn has_voted(&self, playerid: usize) -> bool {
-        !(self.status[self.round].approvals.len() == 0 || self.status[self.round].approvals[playerid] == Approval::None)
+        !(self.status[self.round].approvals.len() == 0 || self.status[self.round].approvals[self.status[self.round].vote].len() == 0 || self.status[self.round].approvals[self.status[self.round].vote][playerid] == Approval::None)
     }
 
     fn has_everyone_voted(&self) -> bool {
-        self.status[self.round].approvals.iter().filter(|a|**a == Approval::None).collect::<Vec<&Approval>>().len() == 0
+        self.status[self.round].approvals[self.status[self.round].vote].iter().filter(|a|**a == Approval::None).collect::<Vec<&Approval>>().len() == 0
     }
 
     fn approve_or_reject(&mut self) {
-        let approve = self.status[self.round].approvals.iter().filter(|a|**a == Approval::Approve).collect::<Vec<&Approval>>().len();
-        let reject = self.status[self.round].approvals.iter().filter(|a|**a == Approval::Reject).collect::<Vec<&Approval>>().len();
+        let approve = self.status[self.round].approvals[self.status[self.round].vote].iter().filter(|a|**a == Approval::Approve).collect::<Vec<&Approval>>().len();
+        let reject = self.status[self.round].approvals[self.status[self.round].vote].iter().filter(|a|**a == Approval::Reject).collect::<Vec<&Approval>>().len();
         if approve >= reject {
             self.status[self.round].state = MissionState::RunningMission;
         } else {
             self.vote += 1;
-            // Handle if vote fails
-            self.status[self.round].state = MissionState::RunningMission;
+            self.status[self.round].vote = self.status[self.round].vote + 1;
+            self.status[self.round].approvals.push(vec![Approval::None; self.numberofplayers]);
+            self.status[0].state = MissionState::SelectingOperatives;
+            self.next_leader();
         }
+    }
+
+    fn is_on_mission(&self, playerid: usize) -> bool {
+        false
+    }
+
+    fn is_valid_mission_choice(&self, playerid: usize, status: bool) -> bool {
+        false
     }
 
     fn get_player(&self, player_key: &String) -> Result<&Player, &'static str> {
